@@ -1,7 +1,6 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-from io import BytesIO
 from collections import Counter
 
 # --- 1. 計算ロジック ---
@@ -25,82 +24,66 @@ class Sandpile:
             over_threshold = self.grid >= self.threshold
             grains_to_move = self.grid // self.threshold
             total_topples += np.sum(over_threshold)
+            
             self.grid -= grains_to_move * self.threshold
             padded = np.pad(grains_to_move, 1, mode='constant')
-            self.grid += padded[0:-2, 1:-1] 
-            self.grid += padded[2:, 1:-1]   
-            self.grid += padded[1:-1, 0:-2] 
-            self.grid += padded[1:-1, 2:]   
+            self.grid += padded[0:-2, 1:-1] # 上
+            self.grid += padded[2:, 1:-1]   # 下
+            self.grid += padded[1:-1, 0:-2] # 左
+            self.grid += padded[1:-1, 2:]   # 右
         return total_topples
 
-# --- 2. UI設定 ---
-st.set_page_config(layout="wide", page_title="Professional Sandpile Sim")
-st.title("3D Bar Sandpile with Statistics")
+# --- 2. Streamlit UI設定 ---
+st.set_page_config(layout="wide", page_title="Custom Sandpile App")
+st.title("Bak-Tang-Wiesenfeld Sandpile Simulation")
 
 # サイドバー設定
 st.sidebar.header("Simulation Settings")
-size = st.sidebar.slider("Grid Size", 10, 60, 30)
-steps = st.sidebar.number_input("Total Steps", 100, 20000, 5000)
-update_interval = st.sidebar.select_slider("Update Interval", options=[1, 5, 10, 20, 50, 100], value=20)
+size = st.sidebar.slider("Grid Size", 20, 100, 50)
 
-st.sidebar.header("3D View Angle")
-elev = st.sidebar.slider("Elevation (仰角)", 0, 90, 30)
-azim = st.sidebar.slider("Azimuth (方位角)", -180, 180, 45)
+# 【変更】初期値を 20,000 に設定
+steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
 
-start_mode = st.sidebar.radio("Initial State", ["Randomly Filled", "Empty"], index=0)
-is_start_filled = (start_mode == "Randomly Filled")
+# 【変更】初期値を 50 に設定
+update_interval = st.sidebar.select_slider("Update Interval (steps)", options=[1, 10, 50, 100, 200, 500], value=50)
+
+start_mode = st.sidebar.radio(
+    "Initial State",
+    ["Randomly Filled (Critical)", "Empty (Zero)"],
+    index=0
+)
+is_start_filled = (start_mode == "Randomly Filled (Critical)")
 
 if st.button('Start Simulation'):
     model = Sandpile(size=size, start_filled=is_start_filled)
     
-    # レイアウト: 左側に3D表示、右側にグラフ2つ
-    col1, col2 = st.columns([3, 2])
+    col1, col2 = st.columns([1, 1])
     with col1:
-        image_spot = st.empty()
+        st.subheader("Sandpile State")
+        state_plot = st.empty()
     with col2:
-        ts_chart = st.empty()
+        st.subheader("Avalanche Statistics")
+        ts_plot = st.empty()
         dist_plot = st.empty()
 
     avalanche_sizes = []
-    
-    # 3D座標の固定データ
-    _x = np.arange(size)
-    _y = np.arange(size)
-    _xx, _yy = np.meshgrid(_x, _y)
-    x_flat, y_flat = _xx.ravel(), _yy.ravel()
-    width = depth = 0.8
 
     for step in range(1, steps + 1):
         topples = model.add_grain()
         avalanche_sizes.append(topples if topples > 0 else 0.1)
-
+        
         if step % update_interval == 0 or step == steps:
-            # --- 3D棒グラフ作成 ---
-            z_data = model.grid.ravel()
-            mask = z_data > 0
+            # 1. 砂山の状態
+            fig_state, ax_state = plt.subplots(figsize=(5, 5))
+            ax_state.imshow(model.grid, cmap='magma', vmin=0, vmax=3)
+            ax_state.axis('off')
+            state_plot.pyplot(fig_state)
+            plt.close(fig_state)
             
-            fig3d = plt.figure(figsize=(10, 8))
-            ax3d = fig3d.add_subplot(111, projection='3d')
+            # 2. 時系列グラフ (直近1000件)
+            ts_plot.line_chart(avalanche_sizes[-1000:], height=200)
             
-            if np.any(mask):
-                colors = plt.cm.magma(z_data[mask] / 4.0)
-                ax3d.bar3d(x_flat[mask], y_flat[mask], np.zeros_like(z_data[mask]), 
-                           width, depth, z_data[mask], 
-                           shade=True, color=colors)
-
-            ax3d.set_zlim(0, 5)
-            ax3d.view_init(elev=elev, azim=azim)
-            ax3d.set_axis_off()
-            
-            buf = BytesIO()
-            fig3d.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
-            image_spot.image(buf, use_container_width=True)
-            plt.close(fig3d)
-
-            # --- 右側：時系列グラフ (直近1000件) ---
-            ts_chart.line_chart(avalanche_sizes[-1000:], height=250)
-
-            # --- 右側：べき乗則分布 (Log-Log) ---
+            # 3. べき乗則分布 (Log-Log)
             valid_sizes = [s for s in avalanche_sizes if s >= 1]
             if valid_sizes:
                 counts = Counter(valid_sizes)
@@ -108,15 +91,13 @@ if st.button('Start Simulation'):
                 probs = [counts[s] / len(valid_sizes) for s in sizes]
                 
                 fig_dist, ax_dist = plt.subplots(figsize=(6, 4))
-                ax_dist.scatter(sizes, probs, alpha=0.6, s=20, c='royalblue')
+                ax_dist.scatter(sizes, probs, alpha=0.5, s=15, c='blue')
                 ax_dist.set_xscale('log')
                 ax_dist.set_yscale('log')
-                ax_dist.set_xlabel("Avalanche Size (s)")
-                ax_dist.set_ylabel("Probability P(s)")
-                ax_dist.set_title("Size Distribution")
+                ax_dist.set_xlabel("Size (s)")
+                ax_dist.set_ylabel("P(s)")
                 ax_dist.grid(True, which="both", ls="-", alpha=0.2)
-                
                 dist_plot.pyplot(fig_dist)
                 plt.close(fig_dist)
 
-    st.success("Simulation Complete")
+    st.success(f"Completed {steps} steps!")
