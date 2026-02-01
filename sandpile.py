@@ -2,8 +2,9 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
+from collections import Counter
 
-# --- 1. 計算ロジック (オリジナルのランダム配置を維持) ---
+# --- 1. 計算ロジック ---
 class Sandpile:
     def __init__(self, size, threshold=4, start_filled=True):
         self.size = size
@@ -33,53 +34,89 @@ class Sandpile:
         return total_topples
 
 # --- 2. UI設定 ---
-st.set_page_config(layout="wide")
-st.title("3D Bar-Style Sandpile")
+st.set_page_config(layout="wide", page_title="Professional Sandpile Sim")
+st.title("3D Bar Sandpile with Statistics")
 
-# 3D棒グラフは描画負荷が高いため、サイズは30前後が最も滑らかに見えます
-size = st.sidebar.slider("Grid Size", 10, 50, 25)
-steps = st.sidebar.number_input("Total Steps", 100, 10000, 2000)
-update_interval = st.sidebar.select_slider("Update Interval", options=[1, 5, 10, 20, 50], value=10)
+# サイドバー設定
+st.sidebar.header("Simulation Settings")
+size = st.sidebar.slider("Grid Size", 10, 60, 30)
+steps = st.sidebar.number_input("Total Steps", 100, 20000, 5000)
+update_interval = st.sidebar.select_slider("Update Interval", options=[1, 5, 10, 20, 50, 100], value=20)
 
-if st.button('Start 3D Bar Simulation'):
-    model = Sandpile(size=size, start_filled=True)
-    image_spot = st.empty()
+st.sidebar.header("3D View Angle")
+elev = st.sidebar.slider("Elevation (仰角)", 0, 90, 30)
+azim = st.sidebar.slider("Azimuth (方位角)", -180, 180, 45)
+
+start_mode = st.sidebar.radio("Initial State", ["Randomly Filled", "Empty"], index=0)
+is_start_filled = (start_mode == "Randomly Filled")
+
+if st.button('Start Simulation'):
+    model = Sandpile(size=size, start_filled=is_start_filled)
     
-    # 座標の準備
+    # レイアウト: 左側に3D表示、右側にグラフ2つ
+    col1, col2 = st.columns([3, 2])
+    with col1:
+        image_spot = st.empty()
+    with col2:
+        ts_chart = st.empty()
+        dist_plot = st.empty()
+
+    avalanche_sizes = []
+    
+    # 3D座標の固定データ
     _x = np.arange(size)
     _y = np.arange(size)
     _xx, _yy = np.meshgrid(_x, _y)
-    x, y = _xx.ravel(), _yy.ravel()
-    top = model.grid.ravel()
-    bottom = np.zeros_like(top)
-    width = depth = 0.8 # 柱の太さ（1.0にすると隙間がなくなります）
+    x_flat, y_flat = _xx.ravel(), _yy.ravel()
+    width = depth = 0.8
 
     for step in range(1, steps + 1):
-        model.add_grain()
+        topples = model.add_grain()
+        avalanche_sizes.append(topples if topples > 0 else 0.1)
 
-        if step % update_interval == 0:
-            # 高さが0より大きい場所だけを抽出して描画を高速化
+        if step % update_interval == 0 or step == steps:
+            # --- 3D棒グラフ作成 ---
             z_data = model.grid.ravel()
             mask = z_data > 0
             
-            fig = plt.figure(figsize=(10, 8))
-            ax = fig.add_subplot(111, projection='3d')
+            fig3d = plt.figure(figsize=(10, 8))
+            ax3d = fig3d.add_subplot(111, projection='3d')
             
-            # 3D棒グラフの描画
-            # 高さに応じて色を変える（崩壊がわかりやすいようにviridisを使用）
-            colors = plt.cm.viridis(z_data[mask] / 4.0)
-            ax.bar3d(x[mask], y[mask], bottom[mask], width, depth, z_data[mask], 
-                     shade=True, color=colors)
+            if np.any(mask):
+                colors = plt.cm.magma(z_data[mask] / 4.0)
+                ax3d.bar3d(x_flat[mask], y_flat[mask], np.zeros_like(z_data[mask]), 
+                           width, depth, z_data[mask], 
+                           shade=True, color=colors)
 
-            # 視点と軸の固定
-            ax.set_zlim(0, 5)
-            ax.view_init(elev=30, azim=45)
-            ax.set_axis_off()
-
-            # 画像としてバッファに保存
+            ax3d.set_zlim(0, 5)
+            ax3d.view_init(elev=elev, azim=azim)
+            ax3d.set_axis_off()
+            
             buf = BytesIO()
-            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0, dpi=80)
+            fig3d.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
             image_spot.image(buf, use_container_width=True)
-            plt.close(fig)
+            plt.close(fig3d)
 
-    st.success("Complete")
+            # --- 右側：時系列グラフ (直近1000件) ---
+            ts_chart.line_chart(avalanche_sizes[-1000:], height=250)
+
+            # --- 右側：べき乗則分布 (Log-Log) ---
+            valid_sizes = [s for s in avalanche_sizes if s >= 1]
+            if valid_sizes:
+                counts = Counter(valid_sizes)
+                sizes = sorted(counts.keys())
+                probs = [counts[s] / len(valid_sizes) for s in sizes]
+                
+                fig_dist, ax_dist = plt.subplots(figsize=(6, 4))
+                ax_dist.scatter(sizes, probs, alpha=0.6, s=20, c='royalblue')
+                ax_dist.set_xscale('log')
+                ax_dist.set_yscale('log')
+                ax_dist.set_xlabel("Avalanche Size (s)")
+                ax_dist.set_ylabel("Probability P(s)")
+                ax_dist.set_title("Size Distribution")
+                ax_dist.grid(True, which="both", ls="-", alpha=0.2)
+                
+                dist_plot.pyplot(fig_dist)
+                plt.close(fig_dist)
+
+    st.success("Simulation Complete")
