@@ -34,62 +34,64 @@ class Sandpile:
         return total_topples
 
 # --- 2. Streamlit UI設定 ---
-st.set_page_config(layout="wide", page_title="3D Sandpile Simulation")
-st.title("3D Bak-Tang-Wiesenfeld Sandpile")
+st.set_page_config(layout="wide", page_title="Smooth 3D Sandpile")
+st.title("Smooth 3D Sandpile Simulation")
 
 st.sidebar.header("Settings")
-size = st.sidebar.slider("Grid Size", 20, 100, 40) # 3Dは少し小さめ(40程度)が綺麗に見えます
+# 3Dを滑らかにするため、グリッドサイズは30-40程度がおすすめです
+size = st.sidebar.slider("Grid Size", 20, 60, 30)
 steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
-update_interval = st.sidebar.select_slider("Update Interval (steps)", options=[1, 10, 50, 100, 200], value=50)
+# アニメーションにするステップ数（一度に描画する塊）
+frames_to_show = st.sidebar.slider("Animation Frames", 10, 100, 50)
+update_interval = 50 # 50ステップごとを1フレームとする
 
 start_mode = st.sidebar.radio("Initial State", ["Randomly Filled", "Empty"], index=0)
 is_start_filled = (start_mode == "Randomly Filled")
 
-if st.button('Start 3D Simulation'):
+if st.button('Start Smooth 3D Simulation'):
     model = Sandpile(size=size, start_filled=is_start_filled)
     
-    col1, col2 = st.columns([3, 2]) # 3D表示を大きく
+    col1, col2 = st.columns([3, 2])
     with col1:
-        st.subheader("3D Sandpile View")
+        st.subheader("3D Smooth View")
         view_3d = st.empty()
     with col2:
         st.subheader("Statistics")
-        ts_plot = st.empty()
+        ts_chart = st.empty()
         dist_plot = st.empty()
 
     avalanche_sizes = []
+    
+    # 進行状況バー
+    progress_bar = st.progress(0)
 
-    for step in range(1, steps + 1):
-        topples = model.add_grain()
-        avalanche_sizes.append(topples if topples > 0 else 0.1)
+    # アニメーション用のデータを蓄積するループ
+    for f in range(frames_to_show):
+        # 指定のステップ数（update_interval）分、計算だけ進める
+        for _ in range(update_interval):
+            topples = model.add_grain()
+            avalanche_sizes.append(topples if topples > 0 else 0.1)
+
+        # --- 3D描画更新（ここを1回にまとめることで点滅を抑える） ---
+        fig_3d = go.Figure(data=[go.Surface(z=model.grid, colorscale='Magma')])
+        fig_3d.update_layout(
+            scene=dict(
+                zaxis=dict(range=[0, 4]),
+                aspectratio=dict(x=1, y=1, z=0.5)
+            ),
+            margin=dict(l=0, r=0, b=0, t=0),
+            height=600,
+            uirevision='constant' # これが重要：回転状態を維持して点滅を抑える
+        )
+        view_3d.plotly_chart(fig_3d, use_container_width=True)
         
-        if step % update_interval == 0 or step == steps:
-            # 1. 3Dサーフェスプロットの作成
-            fig_3d = go.Figure(data=[go.Surface(z=model.grid, colorscale='Magma')])
-            fig_3d.update_layout(
-                margin=dict(l=0, r=0, b=0, t=0),
-                scene=dict(
-                    zaxis=dict(range=[0, 4]), # 高さを0-4で固定して変化を見やすく
-                    aspectratio=dict(x=1, y=1, z=0.5) # 平べったくすると砂山感が出る
-                ),
-                height=600
-            )
-            view_3d.plotly_chart(fig_3d, use_container_width=True)
-            
-            # 2. 時系列グラフ
-            ts_plot.line_chart(avalanche_sizes[-1000:], height=200)
-            
-            # 3. べき乗則分布 (簡略版)
-            valid_sizes = [s for s in avalanche_sizes if s >= 1]
-            if valid_sizes:
-                counts = Counter(valid_sizes)
-                # 分布図は計算負荷軽減のため毎回生成せず表示
-                import pandas as pd
-                df_dist = pd.DataFrame({'Size': list(counts.keys()), 'Prob': [v/len(valid_sizes) for v in counts.values()]})
-                # ※分布図の描画は重いため、ここも高速な散布図等に置き換え可能
-                # 今回はシンプルに維持
-                
-    st.success("Simulation Complete!")
+        # 統計の更新
+        ts_chart.line_chart(avalanche_sizes[-1000:], height=200)
+        
+        # 進捗更新
+        progress_bar.progress((f + 1) / frames_to_show)
+
+    st.success("Simulation Batch Complete!")
     
 # import streamlit as st
 # import numpy as np
