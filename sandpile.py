@@ -1,8 +1,7 @@
 import streamlit as st
 import numpy as np
-import pandas as pd
-import pydeck as pdk
 from collections import Counter
+import matplotlib.pyplot as plt
 
 # --- 1. 計算ロジック ---
 class Sandpile:
@@ -33,21 +32,24 @@ class Sandpile:
             self.grid += padded[1:-1, 2:]   
         return total_topples
 
-# --- 2. Streamlit UI ---
-st.set_page_config(layout="wide", page_title="3D Sandpile")
-st.title("Final 3D Sandpile (Optimized View)")
+# --- 2. UI設定 ---
+st.set_page_config(layout="wide")
+st.title("High-Speed Sandpile Visualizer")
 
-size = st.sidebar.slider("Grid Size", 20, 100, 50)
+size = st.sidebar.slider("Grid Size", 20, 100, 70)
 steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
-update_interval = st.sidebar.select_slider("Update Interval", options=[10, 50, 100, 200], value=50)
+update_interval = st.sidebar.select_slider("Update Interval", options=[1, 10, 50, 100, 200], value=50)
 
 if st.button('Start Simulation'):
     model = Sandpile(size=size, start_filled=True)
     
     col1, col2 = st.columns([2, 1])
     with col1:
-        view_3d = st.empty()
+        st.subheader("Avalanche Flow (Bright = High)")
+        # ここに画像を高速表示する
+        state_image = st.empty()
     with col2:
+        st.subheader("Avalanche Size Log")
         ts_chart = st.empty()
 
     avalanche_sizes = []
@@ -57,43 +59,15 @@ if st.button('Start Simulation'):
         avalanche_sizes.append(topples if topples > 0 else 0.1)
 
         if step % update_interval == 0:
-            # 座標データの作成 (緯度経度ではなく、単純な数値として扱う)
-            x, y = np.indices(model.grid.shape)
-            # 座標を0付近に集中させる
-            df = pd.DataFrame({
-                'lon': (x.flatten() - size/2) * 0.01, 
-                'lat': (y.flatten() - size/2) * 0.01,
-                'z': model.grid.flatten()
-            })
-
-            # 3Dレイヤーの設定
-            layer = pdk.Layer(
-                "ColumnLayer",
-                df,
-                get_position=['lon', 'lat'],
-                get_elevation='z',
-                elevation_scale=500, # 座標系に合わせてスケールを大きく調整
-                radius=0.5,
-                get_fill_color=["z * 60", 100, 200, 200],
-                pickable=True,
-            )
-
-            # カメラ位置を強制固定 (砂山の真上に配置)
-            view_state = pdk.ViewState(
-                latitude=0, 
-                longitude=0, 
-                zoom=12, 
-                pitch=45, 
-                bearing=0
-            )
+            # --- 爆速・無点滅の秘訣：画像を直接生成して表示 ---
+            # gridを0-255のグレースケールに変換し、ヒートマップ化
+            # 3（しきい値直前）を一番明るくする
+            img_data = (model.grid / 3.0)
             
-            # 地図を消し、背景を暗くして描画
-            view_3d.pydeck_chart(pdk.Deck(
-                layers=[layer], 
-                initial_view_state=view_state,
-                map_style=None, # 背景を完全に無効化
-            ))
+            # st.imageを使うことで、グラフ描画のオーバーヘッドを無くし点滅を防止
+            state_image.image(img_data, clamp=True, use_container_width=True)
             
+            # 右側のグラフも更新
             ts_chart.line_chart(avalanche_sizes[-1000:])
 
-    st.success("Simulation Running...")
+    st.success("Simulation Complete")
