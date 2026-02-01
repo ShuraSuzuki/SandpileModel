@@ -27,24 +27,20 @@ class Sandpile:
             
             self.grid -= grains_to_move * self.threshold
             padded = np.pad(grains_to_move, 1, mode='constant')
-            self.grid += padded[0:-2, 1:-1] # 上
-            self.grid += padded[2:, 1:-1]   # 下
-            self.grid += padded[1:-1, 0:-2] # 左
-            self.grid += padded[1:-1, 2:]   # 右
+            self.grid += padded[0:-2, 1:-1]
+            self.grid += padded[2:, 1:-1]
+            self.grid += padded[1:-1, 0:-2]
+            self.grid += padded[1:-1, 2:]
         return total_topples
 
 # --- 2. Streamlit UI設定 ---
-st.set_page_config(layout="wide", page_title="Custom Sandpile App")
+st.set_page_config(layout="wide", page_title="Sandpile App with Legend")
 st.title("Bak-Tang-Wiesenfeld Sandpile Simulation")
 
 # サイドバー設定
 st.sidebar.header("Simulation Settings")
 size = st.sidebar.slider("Grid Size", 20, 100, 50)
-
-# 【変更】初期値を 20,000 に設定
 steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
-
-# 【変更】初期値を 50 に設定
 update_interval = st.sidebar.select_slider("Update Interval (steps)", options=[1, 10, 50, 100, 200, 500], value=50)
 
 start_mode = st.sidebar.radio(
@@ -73,17 +69,23 @@ if st.button('Start Simulation'):
         avalanche_sizes.append(topples if topples > 0 else 0.1)
         
         if step % update_interval == 0 or step == steps:
-            # 1. 砂山の状態
-            fig_state, ax_state = plt.subplots(figsize=(5, 5))
-            ax_state.imshow(model.grid, cmap='magma', vmin=0, vmax=3)
+            # 1. 砂山の状態 (凡例付き)
+            fig_state, ax_state = plt.subplots(figsize=(6, 5))
+            # 凡例が見やすいようにカラーバー（colorbar）を追加
+            im = ax_state.imshow(model.grid, cmap='magma', vmin=0, vmax=3)
             ax_state.axis('off')
+            
+            # 【追加】カラーバー（凡例）の設定
+            cbar = fig_state.colorbar(im, ax=ax_state, ticks=[0, 1, 2, 3], fraction=0.046, pad=0.04)
+            cbar.set_label('Number of grains (Height)', rotation=270, labelpad=15)
+            
             state_plot.pyplot(fig_state)
             plt.close(fig_state)
             
-            # 2. 時系列グラフ (直近1000件)
+            # 2. 時系列グラフ
             ts_plot.line_chart(avalanche_sizes[-1000:], height=200)
             
-            # 3. べき乗則分布 (Log-Log)
+            # 3. べき乗則分布
             valid_sizes = [s for s in avalanche_sizes if s >= 1]
             if valid_sizes:
                 counts = Counter(valid_sizes)
