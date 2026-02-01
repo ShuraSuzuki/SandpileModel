@@ -1,11 +1,11 @@
 import streamlit as st
 import numpy as np
-from collections import Counter
 import matplotlib.pyplot as plt
+from io import BytesIO
 
 # --- 1. 計算ロジック ---
 class Sandpile:
-    def __init__(self, size, threshold=4, start_filled=True):
+    def __init__(self, size, threshold=4, start_filled=False):
         self.size = size
         self.threshold = threshold
         if start_filled:
@@ -14,8 +14,9 @@ class Sandpile:
             self.grid = np.zeros((size, size), dtype=int)
 
     def add_grain(self):
-        x, y = np.random.randint(0, self.size, size=2)
-        self.grid[x, y] += 1
+        # 中央に砂を落とすと「山ができて崩れる」のが一番よくわかります
+        center = self.size // 2
+        self.grid[center, center] += 1
         return self.stabilize_vectorized()
 
     def stabilize_vectorized(self):
@@ -34,40 +35,42 @@ class Sandpile:
 
 # --- 2. UI設定 ---
 st.set_page_config(layout="wide")
-st.title("High-Speed Sandpile Visualizer")
+st.title("3D Sandpile Avalanche Visualizer")
 
-size = st.sidebar.slider("Grid Size", 20, 100, 70)
-steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
-update_interval = st.sidebar.select_slider("Update Interval", options=[1, 10, 50, 100, 200], value=50)
+size = st.sidebar.slider("Grid Size", 20, 60, 40)
+steps = st.sidebar.number_input("Total Steps", 100, 20000, 5000)
+update_interval = st.sidebar.select_slider("Update Interval", options=[1, 10, 20, 50, 100], value=20)
 
-if st.button('Start Simulation'):
-    model = Sandpile(size=size, start_filled=True)
+if st.button('Start 3D Visualization'):
+    model = Sandpile(size=size, start_filled=False)
     
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.subheader("Avalanche Flow (Bright = High)")
-        # ここに画像を高速表示する
-        state_image = st.empty()
-    with col2:
-        st.subheader("Avalanche Size Log")
-        ts_chart = st.empty()
-
-    avalanche_sizes = []
+    # 描画エリア
+    image_spot = st.empty()
+    
+    # 座標の準備
+    X, Y = np.meshgrid(range(size), range(size))
 
     for step in range(1, steps + 1):
-        topples = model.add_grain()
-        avalanche_sizes.append(topples if topples > 0 else 0.1)
+        model.add_grain()
 
         if step % update_interval == 0:
-            # --- 爆速・無点滅の秘訣：画像を直接生成して表示 ---
-            # gridを0-255のグレースケールに変換し、ヒートマップ化
-            # 3（しきい値直前）を一番明るくする
-            img_data = (model.grid / 3.0)
+            # --- 3D画像をメモリ上に生成 ---
+            fig = plt.figure(figsize=(8, 6))
+            ax = fig.add_subplot(111, projection='3d')
             
-            # st.imageを使うことで、グラフ描画のオーバーヘッドを無くし点滅を防止
-            state_image.image(img_data, clamp=True, use_container_width=True)
+            # 表面をプロット（antialiased=Falseで描画を高速化）
+            surf = ax.plot_surface(X, Y, model.grid, cmap='copper', 
+                                   linewidth=0, antialiased=False)
             
-            # 右側のグラフも更新
-            ts_chart.line_chart(avalanche_sizes[-1000:])
+            # 見た目の固定（ここが「崩れている感」を出すポイント）
+            ax.set_zlim(0, 5)        # 高さを固定
+            ax.set_axis_off()        # 余計な軸を消す
+            ax.view_init(elev=30, azim=45) # 常にこの角度から見る
+            
+            # 画像として保存してStreamlitに渡す（点滅防止）
+            buf = BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+            image_spot.image(buf, use_container_width=True)
+            plt.close(fig) # メモリ解放
 
     st.success("Simulation Complete")
