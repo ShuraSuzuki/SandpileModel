@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
 
-# --- 1. 計算ロジック (高速化のためベクトル化済みのものを継承) ---
+# --- 1. 計算ロジック ---
 class Sandpile:
     def __init__(self, size, threshold=4, start_filled=True):
         self.size = size
@@ -34,45 +34,53 @@ class Sandpile:
         return total_topples
 
 # --- 2. Streamlit UI設定 ---
-st.set_page_config(layout="wide", page_title="High-Speed Sandpile")
+st.set_page_config(layout="wide", page_title="Custom Sandpile App")
 st.title("Bak-Tang-Wiesenfeld Sandpile Simulation")
 
 # サイドバー設定
+st.sidebar.header("Simulation Settings")
 size = st.sidebar.slider("Grid Size", 20, 100, 50)
-steps = st.sidebar.number_input("Total Steps", 100, 20000, 2000)
-update_interval = st.sidebar.select_slider("Update Interval (steps)", options=[10, 50, 100, 200, 500], value=100)
+
+# 【変更】初期値を 20,000 に設定
+steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
+
+# 【変更】初期値を 50 に設定
+update_interval = st.sidebar.select_slider("Update Interval (steps)", options=[1, 10, 50, 100, 200, 500], value=50)
+
+start_mode = st.sidebar.radio(
+    "Initial State",
+    ["Randomly Filled (Critical)", "Empty (Zero)"],
+    index=0
+)
+is_start_filled = (start_mode == "Randomly Filled (Critical)")
 
 if st.button('Start Simulation'):
-    model = Sandpile(size=size)
+    model = Sandpile(size=size, start_filled=is_start_filled)
     
-    # レイアウト作成
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("Sandpile State")
         state_plot = st.empty()
     with col2:
         st.subheader("Avalanche Statistics")
-        ts_plot = st.empty()     # 時系列用
-        dist_plot = st.empty()   # べき乗則分布用
+        ts_plot = st.empty()
+        dist_plot = st.empty()
 
     avalanche_sizes = []
 
-    # シミュレーションループ
     for step in range(1, steps + 1):
         topples = model.add_grain()
         avalanche_sizes.append(topples if topples > 0 else 0.1)
         
-        # 指定間隔ごとに描画を更新
         if step % update_interval == 0 or step == steps:
-            # 1. 砂山の状態 (Matplotlibを使用)
+            # 1. 砂山の状態
             fig_state, ax_state = plt.subplots(figsize=(5, 5))
             ax_state.imshow(model.grid, cmap='magma', vmin=0, vmax=3)
             ax_state.axis('off')
             state_plot.pyplot(fig_state)
             plt.close(fig_state)
             
-            # 2. 時系列グラフ (Streamlitネイティブチャートで高速化)
-            # 直近1000件を表示
+            # 2. 時系列グラフ (直近1000件)
             ts_plot.line_chart(avalanche_sizes[-1000:], height=200)
             
             # 3. べき乗則分布 (Log-Log)
