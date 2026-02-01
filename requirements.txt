@@ -1,4 +1,5 @@
 numpy
 matplotlib
 streamlit
-plotly
+pandas
+pydeck
