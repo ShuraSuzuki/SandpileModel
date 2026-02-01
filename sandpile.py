@@ -1,9 +1,10 @@
 import streamlit as st
 import numpy as np
-import plotly.graph_objects as go
+import pandas as pd
+import pydeck as pdk
 from collections import Counter
 
-# --- 1. 計算ロジック (Sandpileクラス) ---
+# --- 1. 計算ロジック (Sandpile) ---
 class Sandpile:
     def __init__(self, size, threshold=4, start_filled=True):
         self.size = size
@@ -24,7 +25,6 @@ class Sandpile:
             over_threshold = self.grid >= self.threshold
             grains_to_move = self.grid // self.threshold
             total_topples += np.sum(over_threshold)
-            
             self.grid -= grains_to_move * self.threshold
             padded = np.pad(grains_to_move, 1, mode='constant')
             self.grid += padded[0:-2, 1:-1] 
@@ -33,65 +33,62 @@ class Sandpile:
             self.grid += padded[1:-1, 2:]   
         return total_topples
 
-# --- 2. Streamlit UI設定 ---
-st.set_page_config(layout="wide", page_title="Smooth 3D Sandpile")
-st.title("Smooth 3D Sandpile Simulation")
+# --- 2. Streamlit UI ---
+st.set_page_config(layout="wide", page_title="No-Flicker 3D Sandpile")
+st.title("High-Speed 3D Sandpile (PyDeck)")
 
-st.sidebar.header("Settings")
-# 3Dを滑らかにするため、グリッドサイズは30-40程度がおすすめです
-size = st.sidebar.slider("Grid Size", 20, 60, 30)
+size = st.sidebar.slider("Grid Size", 20, 100, 50)
 steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
-# アニメーションにするステップ数（一度に描画する塊）
-frames_to_show = st.sidebar.slider("Animation Frames", 10, 100, 50)
-update_interval = 50 # 50ステップごとを1フレームとする
+update_interval = st.sidebar.select_slider("Update Interval", options=[10, 50, 100, 200], value=50)
 
-start_mode = st.sidebar.radio("Initial State", ["Randomly Filled", "Empty"], index=0)
-is_start_filled = (start_mode == "Randomly Filled")
-
-if st.button('Start Smooth 3D Simulation'):
-    model = Sandpile(size=size, start_filled=is_start_filled)
+if st.button('Start Simulation'):
+    model = Sandpile(size=size, start_filled=True)
     
-    col1, col2 = st.columns([3, 2])
+    col1, col2 = st.columns([2, 1])
     with col1:
-        st.subheader("3D Smooth View")
+        st.subheader("3D High-Speed View")
         view_3d = st.empty()
     with col2:
-        st.subheader("Statistics")
+        st.subheader("Avalanche Log")
         ts_chart = st.empty()
-        dist_plot = st.empty()
 
     avalanche_sizes = []
-    
-    # 進行状況バー
-    progress_bar = st.progress(0)
 
-    # アニメーション用のデータを蓄積するループ
-    for f in range(frames_to_show):
-        # 指定のステップ数（update_interval）分、計算だけ進める
-        for _ in range(update_interval):
-            topples = model.add_grain()
-            avalanche_sizes.append(topples if topples > 0 else 0.1)
+    for step in range(1, steps + 1):
+        topples = model.add_grain()
+        avalanche_sizes.append(topples if topples > 0 else 0.1)
 
-        # --- 3D描画更新（ここを1回にまとめることで点滅を抑える） ---
-        fig_3d = go.Figure(data=[go.Surface(z=model.grid, colorscale='Magma')])
-        fig_3d.update_layout(
-            scene=dict(
-                zaxis=dict(range=[0, 4]),
-                aspectratio=dict(x=1, y=1, z=0.5)
-            ),
-            margin=dict(l=0, r=0, b=0, t=0),
-            height=600,
-            uirevision='constant' # これが重要：回転状態を維持して点滅を抑える
-        )
-        view_3d.plotly_chart(fig_3d, use_container_width=True)
-        
-        # 統計の更新
-        ts_chart.line_chart(avalanche_sizes[-1000:], height=200)
-        
-        # 進捗更新
-        progress_bar.progress((f + 1) / frames_to_show)
+        if step % update_interval == 0:
+            # --- 3. データを3D棒グラフ用のリストに変換 ---
+            # gridの値を [x, y, z] のリストに変換
+            x, y = np.indices(model.grid.shape)
+            df = pd.DataFrame({
+                'x': x.flatten() - size/2, # 中心に寄せる
+                'y': y.flatten() - size/2,
+                'z': model.grid.flatten() * 10 # 高さを強調
+            })
 
-    st.success("Simulation Batch Complete!")
+            # --- 4. PyDeck (JavaScript) による高速描画 ---
+            layer = pdk.Layer(
+                "ColumnLayer",
+                df,
+                get_position=['x', 'y'],
+                get_elevation='z',
+                elevation_scale=5,
+                radius=1,
+                get_fill_color=["z * 50", 50, "255 - z * 50", 200], # 高さで色を変える
+                pickable=True,
+                auto_highlight=True,
+            )
+
+            view_state = pdk.ViewState(latitude=0, longitude=0, zoom=10, pitch=45, bearing=30)
+            
+            # r=view_3d.pydeck_chart(...) で更新することで点滅を最小化
+            view_3d.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state))
+            
+            ts_chart.line_chart(avalanche_sizes[-1000:])
+
+    st.success("Complete")
     
 # import streamlit as st
 # import numpy as np
