@@ -27,15 +27,15 @@ class Sandpile:
             total_topples += np.sum(over_threshold)
             self.grid -= grains_to_move * self.threshold
             padded = np.pad(grains_to_move, 1, mode='constant')
-            self.grid += padded[0:-2, 1:-1] 
-            self.grid += padded[2:, 1:-1]   
-            self.grid += padded[1:-1, 0:-2] 
-            self.grid += padded[1:-1, 2:]   
+            self.grid += padded[0:-2, 1:-1]
+            self.grid += padded[2:, 1:-1]
+            self.grid += padded[1:-1, 0:-2]
+            self.grid += padded[1:-1, 2:]
         return total_topples
 
 # --- 2. Streamlit UI ---
-st.set_page_config(layout="wide", page_title="No-Flicker 3D Sandpile")
-st.title("High-Speed 3D Sandpile (PyDeck)")
+st.set_page_config(layout="wide", page_title="3D Sandpile No-Map")
+st.title("High-Speed 3D Sandpile (No-Map Version)")
 
 size = st.sidebar.slider("Grid Size", 20, 100, 50)
 steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
@@ -46,10 +46,8 @@ if st.button('Start Simulation'):
     
     col1, col2 = st.columns([2, 1])
     with col1:
-        st.subheader("3D High-Speed View")
         view_3d = st.empty()
     with col2:
-        st.subheader("Avalanche Log")
         ts_chart = st.empty()
 
     avalanche_sizes = []
@@ -59,32 +57,34 @@ if st.button('Start Simulation'):
         avalanche_sizes.append(topples if topples > 0 else 0.1)
 
         if step % update_interval == 0:
-            # --- 3. データを3D棒グラフ用のリストに変換 ---
-            # gridの値を [x, y, z] のリストに変換
+            # データを3D棒グラフ用に変換
             x, y = np.indices(model.grid.shape)
             df = pd.DataFrame({
-                'x': x.flatten() - size/2, # 中心に寄せる
+                'x': x.flatten() - size/2,
                 'y': y.flatten() - size/2,
-                'z': model.grid.flatten() * 10 # 高さを強調
+                'z': model.grid.flatten()
             })
 
-            # --- 4. PyDeck (JavaScript) による高速描画 ---
+            # --- 地図を消すための設定 ---
             layer = pdk.Layer(
                 "ColumnLayer",
                 df,
                 get_position=['x', 'y'],
                 get_elevation='z',
-                elevation_scale=5,
-                radius=1,
-                get_fill_color=["z * 50", 50, "255 - z * 50", 200], # 高さで色を変える
+                elevation_scale=15, # 高さを出し、崩壊を見やすく
+                radius=0.4, # 棒の太さ
+                get_fill_color=["z * 60", "z * 20", 150, 200], # 高さで色を変化
                 pickable=True,
-                auto_highlight=True,
             )
 
-            view_state = pdk.ViewState(latitude=0, longitude=0, zoom=10, pitch=45, bearing=30)
+            # map_style=None にすることでリベリア等の地図を消去
+            view_state = pdk.ViewState(latitude=0, longitude=0, zoom=11, pitch=45, bearing=30)
             
-            # r=view_3d.pydeck_chart(...) で更新することで点滅を最小化
-            view_3d.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state))
+            view_3d.pydeck_chart(pdk.Deck(
+                layers=[layer], 
+                initial_view_state=view_state,
+                map_style=None, # これで背景を真っ暗な空間にする
+            ))
             
             ts_chart.line_chart(avalanche_sizes[-1000:])
 
