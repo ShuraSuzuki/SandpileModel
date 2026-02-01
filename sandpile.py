@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
 
-# --- 1. 元の計算ロジック (変更なし) ---
+# --- 1. 計算ロジック (オリジナルのランダム配置を維持) ---
 class Sandpile:
     def __init__(self, size, threshold=4, start_filled=True):
         self.size = size
@@ -14,7 +14,6 @@ class Sandpile:
             self.grid = np.zeros((size, size), dtype=int)
 
     def add_grain(self):
-        # 元のロジック：ランダムな位置に砂を落とす
         x, y = np.random.randint(0, self.size, size=2)
         self.grid[x, y] += 1
         return self.stabilize_vectorized()
@@ -35,45 +34,52 @@ class Sandpile:
 
 # --- 2. UI設定 ---
 st.set_page_config(layout="wide")
-st.title("3D Sandpile Avalanche Visualizer")
+st.title("3D Bar-Style Sandpile")
 
-size = st.sidebar.slider("Grid Size", 20, 100, 50)
-steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
-update_interval = st.sidebar.select_slider("Update Interval", options=[1, 10, 50, 100, 200], value=50)
+# 3D棒グラフは描画負荷が高いため、サイズは30前後が最も滑らかに見えます
+size = st.sidebar.slider("Grid Size", 10, 50, 25)
+steps = st.sidebar.number_input("Total Steps", 100, 10000, 2000)
+update_interval = st.sidebar.select_slider("Update Interval", options=[1, 5, 10, 20, 50], value=10)
 
-start_mode = st.sidebar.radio("Initial State", ["Randomly Filled", "Empty"], index=0)
-is_start_filled = (start_mode == "Randomly Filled")
-
-if st.button('Start Simulation'):
-    model = Sandpile(size=size, start_filled=is_start_filled)
-    
-    # 描画エリア
+if st.button('Start 3D Bar Simulation'):
+    model = Sandpile(size=size, start_filled=True)
     image_spot = st.empty()
     
-    # 3D座標の準備
-    X, Y = np.meshgrid(range(size), range(size))
+    # 座標の準備
+    _x = np.arange(size)
+    _y = np.arange(size)
+    _xx, _yy = np.meshgrid(_x, _y)
+    x, y = _xx.ravel(), _yy.ravel()
+    top = model.grid.ravel()
+    bottom = np.zeros_like(top)
+    width = depth = 0.8 # 柱の太さ（1.0にすると隙間がなくなります）
 
     for step in range(1, steps + 1):
         model.add_grain()
 
         if step % update_interval == 0:
-            # Python側で3Dグラフを「画像」として作成
-            fig = plt.figure(figsize=(10, 7))
+            # 高さが0より大きい場所だけを抽出して描画を高速化
+            z_data = model.grid.ravel()
+            mask = z_data > 0
+            
+            fig = plt.figure(figsize=(10, 8))
             ax = fig.add_subplot(111, projection='3d')
             
-            # antialiased=Falseで描画速度を稼ぐ
-            surf = ax.plot_surface(X, Y, model.grid, cmap='viridis', 
-                                   linewidth=0, antialiased=False)
-            
-            # 見た目の固定設定
-            ax.set_zlim(0, 5) # 高さを固定して「崩れた」瞬間をわかりやすくする
-            ax.view_init(elev=35, azim=45) # 斜め上からの視点に固定
-            ax.set_axis_off() # 地図などの余計な情報は出さない
-            
-            # メモリ上でPNG化（これが点滅防止の鍵）
+            # 3D棒グラフの描画
+            # 高さに応じて色を変える（崩壊がわかりやすいようにviridisを使用）
+            colors = plt.cm.viridis(z_data[mask] / 4.0)
+            ax.bar3d(x[mask], y[mask], bottom[mask], width, depth, z_data[mask], 
+                     shade=True, color=colors)
+
+            # 視点と軸の固定
+            ax.set_zlim(0, 5)
+            ax.view_init(elev=30, azim=45)
+            ax.set_axis_off()
+
+            # 画像としてバッファに保存
             buf = BytesIO()
-            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
+            plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0, dpi=80)
             image_spot.image(buf, use_container_width=True)
             plt.close(fig)
 
-    st.success("Simulation Complete")
+    st.success("Complete")
