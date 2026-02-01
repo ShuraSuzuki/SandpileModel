@@ -4,7 +4,7 @@ import pandas as pd
 import pydeck as pdk
 from collections import Counter
 
-# --- 1. 計算ロジック (Sandpile) ---
+# --- 1. 計算ロジック ---
 class Sandpile:
     def __init__(self, size, threshold=4, start_filled=True):
         self.size = size
@@ -27,15 +27,15 @@ class Sandpile:
             total_topples += np.sum(over_threshold)
             self.grid -= grains_to_move * self.threshold
             padded = np.pad(grains_to_move, 1, mode='constant')
-            self.grid += padded[0:-2, 1:-1]
-            self.grid += padded[2:, 1:-1]
-            self.grid += padded[1:-1, 0:-2]
-            self.grid += padded[1:-1, 2:]
+            self.grid += padded[0:-2, 1:-1] 
+            self.grid += padded[2:, 1:-1]   
+            self.grid += padded[1:-1, 0:-2] 
+            self.grid += padded[1:-1, 2:]   
         return total_topples
 
 # --- 2. Streamlit UI ---
-st.set_page_config(layout="wide", page_title="3D Sandpile No-Map")
-st.title("High-Speed 3D Sandpile (No-Map Version)")
+st.set_page_config(layout="wide", page_title="3D Sandpile")
+st.title("Final 3D Sandpile (Optimized View)")
 
 size = st.sidebar.slider("Grid Size", 20, 100, 50)
 steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
@@ -57,139 +57,43 @@ if st.button('Start Simulation'):
         avalanche_sizes.append(topples if topples > 0 else 0.1)
 
         if step % update_interval == 0:
-            # データを3D棒グラフ用に変換
+            # 座標データの作成 (緯度経度ではなく、単純な数値として扱う)
             x, y = np.indices(model.grid.shape)
+            # 座標を0付近に集中させる
             df = pd.DataFrame({
-                'x': x.flatten() - size/2,
-                'y': y.flatten() - size/2,
+                'lon': (x.flatten() - size/2) * 0.01, 
+                'lat': (y.flatten() - size/2) * 0.01,
                 'z': model.grid.flatten()
             })
 
-            # --- 地図を消すための設定 ---
+            # 3Dレイヤーの設定
             layer = pdk.Layer(
                 "ColumnLayer",
                 df,
-                get_position=['x', 'y'],
+                get_position=['lon', 'lat'],
                 get_elevation='z',
-                elevation_scale=15, # 高さを出し、崩壊を見やすく
-                radius=0.4, # 棒の太さ
-                get_fill_color=["z * 60", "z * 20", 150, 200], # 高さで色を変化
+                elevation_scale=500, # 座標系に合わせてスケールを大きく調整
+                radius=0.5,
+                get_fill_color=["z * 60", 100, 200, 200],
                 pickable=True,
             )
 
-            # map_style=None にすることでリベリア等の地図を消去
-            view_state = pdk.ViewState(latitude=0, longitude=0, zoom=11, pitch=45, bearing=30)
+            # カメラ位置を強制固定 (砂山の真上に配置)
+            view_state = pdk.ViewState(
+                latitude=0, 
+                longitude=0, 
+                zoom=12, 
+                pitch=45, 
+                bearing=0
+            )
             
+            # 地図を消し、背景を暗くして描画
             view_3d.pydeck_chart(pdk.Deck(
                 layers=[layer], 
                 initial_view_state=view_state,
-                map_style=None, # これで背景を真っ暗な空間にする
+                map_style=None, # 背景を完全に無効化
             ))
             
             ts_chart.line_chart(avalanche_sizes[-1000:])
 
-    st.success("Complete")
-    
-# import streamlit as st
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from collections import Counter
-
-# # --- 1. 計算ロジック ---
-# class Sandpile:
-#     def __init__(self, size, threshold=4, start_filled=True):
-#         self.size = size
-#         self.threshold = threshold
-#         if start_filled:
-#             self.grid = np.random.randint(0, threshold, (size, size))
-#         else:
-#             self.grid = np.zeros((size, size), dtype=int)
-
-#     def add_grain(self):
-#         x, y = np.random.randint(0, self.size, size=2)
-#         self.grid[x, y] += 1
-#         return self.stabilize_vectorized()
-
-#     def stabilize_vectorized(self):
-#         total_topples = 0
-#         while np.any(self.grid >= self.threshold):
-#             over_threshold = self.grid >= self.threshold
-#             grains_to_move = self.grid // self.threshold
-#             total_topples += np.sum(over_threshold)
-            
-#             self.grid -= grains_to_move * self.threshold
-#             padded = np.pad(grains_to_move, 1, mode='constant')
-#             self.grid += padded[0:-2, 1:-1] # 上
-#             self.grid += padded[2:, 1:-1]   # 下
-#             self.grid += padded[1:-1, 0:-2] # 左
-#             self.grid += padded[1:-1, 2:]   # 右
-#         return total_topples
-
-# # --- 2. Streamlit UI設定 ---
-# st.set_page_config(layout="wide", page_title="Custom Sandpile App")
-# st.title("Bak-Tang-Wiesenfeld Sandpile Simulation")
-
-# # サイドバー設定
-# st.sidebar.header("Simulation Settings")
-# size = st.sidebar.slider("Grid Size", 20, 100, 50)
-
-# # 【変更】初期値を 20,000 に設定
-# steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
-
-# # 【変更】初期値を 50 に設定
-# update_interval = st.sidebar.select_slider("Update Interval (steps)", options=[1, 10, 50, 100, 200, 500], value=50)
-
-# start_mode = st.sidebar.radio(
-#     "Initial State",
-#     ["Randomly Filled (Critical)", "Empty (Zero)"],
-#     index=0
-# )
-# is_start_filled = (start_mode == "Randomly Filled (Critical)")
-
-# if st.button('Start Simulation'):
-#     model = Sandpile(size=size, start_filled=is_start_filled)
-    
-#     col1, col2 = st.columns([1, 1])
-#     with col1:
-#         st.subheader("Sandpile State")
-#         state_plot = st.empty()
-#     with col2:
-#         st.subheader("Avalanche Statistics")
-#         ts_plot = st.empty()
-#         dist_plot = st.empty()
-
-#     avalanche_sizes = []
-
-#     for step in range(1, steps + 1):
-#         topples = model.add_grain()
-#         avalanche_sizes.append(topples if topples > 0 else 0.1)
-        
-#         if step % update_interval == 0 or step == steps:
-#             # 1. 砂山の状態
-#             fig_state, ax_state = plt.subplots(figsize=(5, 5))
-#             ax_state.imshow(model.grid, cmap='magma', vmin=0, vmax=3)
-#             ax_state.axis('off')
-#             state_plot.pyplot(fig_state)
-#             plt.close(fig_state)
-            
-#             # 2. 時系列グラフ (直近1000件)
-#             ts_plot.line_chart(avalanche_sizes[-1000:], height=200)
-            
-#             # 3. べき乗則分布 (Log-Log)
-#             valid_sizes = [s for s in avalanche_sizes if s >= 1]
-#             if valid_sizes:
-#                 counts = Counter(valid_sizes)
-#                 sizes = sorted(counts.keys())
-#                 probs = [counts[s] / len(valid_sizes) for s in sizes]
-                
-#                 fig_dist, ax_dist = plt.subplots(figsize=(6, 4))
-#                 ax_dist.scatter(sizes, probs, alpha=0.5, s=15, c='blue')
-#                 ax_dist.set_xscale('log')
-#                 ax_dist.set_yscale('log')
-#                 ax_dist.set_xlabel("Size (s)")
-#                 ax_dist.set_ylabel("P(s)")
-#                 ax_dist.grid(True, which="both", ls="-", alpha=0.2)
-#                 dist_plot.pyplot(fig_dist)
-#                 plt.close(fig_dist)
-
-#     st.success(f"Completed {steps} steps!")
+    st.success("Simulation Running...")
