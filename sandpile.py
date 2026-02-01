@@ -3,9 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from io import BytesIO
 
-# --- 1. 計算ロジック ---
+# --- 1. 元の計算ロジック (変更なし) ---
 class Sandpile:
-    def __init__(self, size, threshold=4, start_filled=False):
+    def __init__(self, size, threshold=4, start_filled=True):
         self.size = size
         self.threshold = threshold
         if start_filled:
@@ -14,9 +14,9 @@ class Sandpile:
             self.grid = np.zeros((size, size), dtype=int)
 
     def add_grain(self):
-        # 中央に砂を落とすと「山ができて崩れる」のが一番よくわかります
-        center = self.size // 2
-        self.grid[center, center] += 1
+        # 元のロジック：ランダムな位置に砂を落とす
+        x, y = np.random.randint(0, self.size, size=2)
+        self.grid[x, y] += 1
         return self.stabilize_vectorized()
 
     def stabilize_vectorized(self):
@@ -37,40 +37,43 @@ class Sandpile:
 st.set_page_config(layout="wide")
 st.title("3D Sandpile Avalanche Visualizer")
 
-size = st.sidebar.slider("Grid Size", 20, 60, 40)
-steps = st.sidebar.number_input("Total Steps", 100, 20000, 5000)
-update_interval = st.sidebar.select_slider("Update Interval", options=[1, 10, 20, 50, 100], value=20)
+size = st.sidebar.slider("Grid Size", 20, 100, 50)
+steps = st.sidebar.number_input("Total Steps", 100, 50000, 20000)
+update_interval = st.sidebar.select_slider("Update Interval", options=[1, 10, 50, 100, 200], value=50)
 
-if st.button('Start 3D Visualization'):
-    model = Sandpile(size=size, start_filled=False)
+start_mode = st.sidebar.radio("Initial State", ["Randomly Filled", "Empty"], index=0)
+is_start_filled = (start_mode == "Randomly Filled")
+
+if st.button('Start Simulation'):
+    model = Sandpile(size=size, start_filled=is_start_filled)
     
     # 描画エリア
     image_spot = st.empty()
     
-    # 座標の準備
+    # 3D座標の準備
     X, Y = np.meshgrid(range(size), range(size))
 
     for step in range(1, steps + 1):
         model.add_grain()
 
         if step % update_interval == 0:
-            # --- 3D画像をメモリ上に生成 ---
-            fig = plt.figure(figsize=(8, 6))
+            # Python側で3Dグラフを「画像」として作成
+            fig = plt.figure(figsize=(10, 7))
             ax = fig.add_subplot(111, projection='3d')
             
-            # 表面をプロット（antialiased=Falseで描画を高速化）
-            surf = ax.plot_surface(X, Y, model.grid, cmap='copper', 
+            # antialiased=Falseで描画速度を稼ぐ
+            surf = ax.plot_surface(X, Y, model.grid, cmap='viridis', 
                                    linewidth=0, antialiased=False)
             
-            # 見た目の固定（ここが「崩れている感」を出すポイント）
-            ax.set_zlim(0, 5)        # 高さを固定
-            ax.set_axis_off()        # 余計な軸を消す
-            ax.view_init(elev=30, azim=45) # 常にこの角度から見る
+            # 見た目の固定設定
+            ax.set_zlim(0, 5) # 高さを固定して「崩れた」瞬間をわかりやすくする
+            ax.view_init(elev=35, azim=45) # 斜め上からの視点に固定
+            ax.set_axis_off() # 地図などの余計な情報は出さない
             
-            # 画像として保存してStreamlitに渡す（点滅防止）
+            # メモリ上でPNG化（これが点滅防止の鍵）
             buf = BytesIO()
             plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
             image_spot.image(buf, use_container_width=True)
-            plt.close(fig) # メモリ解放
+            plt.close(fig)
 
     st.success("Simulation Complete")
