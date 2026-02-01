@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
 
+# --- 1. 計算ロジック (高速化のためベクトル化済みのものを継承) ---
 class Sandpile:
     def __init__(self, size, threshold=4, start_filled=True):
         self.size = size
@@ -26,59 +27,69 @@ class Sandpile:
             
             self.grid -= grains_to_move * self.threshold
             padded = np.pad(grains_to_move, 1, mode='constant')
-            self.grid += padded[0:-2, 1:-1]
-            self.grid += padded[2:, 1:-1]
-            self.grid += padded[1:-1, 0:-2]
-            self.grid += padded[1:-1, 2:]
+            self.grid += padded[0:-2, 1:-1] # 上
+            self.grid += padded[2:, 1:-1]   # 下
+            self.grid += padded[1:-1, 0:-2] # 左
+            self.grid += padded[1:-1, 2:]   # 右
         return total_topples
 
-# --- Streamlit UI ---
-st.set_page_config(layout="wide") # 画面を広く使う
-st.title("Bak-Tang-Wiesenfeld Sandpile Model")
+# --- 2. Streamlit UI設定 ---
+st.set_page_config(layout="wide", page_title="High-Speed Sandpile")
+st.title("Bak-Tang-Wiesenfeld Sandpile Simulation")
 
+# サイドバー設定
 size = st.sidebar.slider("Grid Size", 20, 100, 50)
-steps = st.sidebar.number_input("Total Steps", 100, 10000, 1000)
+steps = st.sidebar.number_input("Total Steps", 100, 20000, 2000)
+update_interval = st.sidebar.select_slider("Update Interval (steps)", options=[10, 50, 100, 200, 500], value=100)
 
 if st.button('Start Simulation'):
     model = Sandpile(size=size)
-    plot_spot = st.empty()
+    
+    # レイアウト作成
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.subheader("Sandpile State")
+        state_plot = st.empty()
+    with col2:
+        st.subheader("Avalanche Statistics")
+        ts_plot = st.empty()     # 時系列用
+        dist_plot = st.empty()   # べき乗則分布用
+
     avalanche_sizes = []
 
-    for step in range(steps):
+    # シミュレーションループ
+    for step in range(1, steps + 1):
         topples = model.add_grain()
-        # ログスケールのために0は0.1として扱う
         avalanche_sizes.append(topples if topples > 0 else 0.1)
         
-        if step % 25 == 0:
-            # 3つのグラフを横に並べる
-            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
+        # 指定間隔ごとに描画を更新
+        if step % update_interval == 0 or step == steps:
+            # 1. 砂山の状態 (Matplotlibを使用)
+            fig_state, ax_state = plt.subplots(figsize=(5, 5))
+            ax_state.imshow(model.grid, cmap='magma', vmin=0, vmax=3)
+            ax_state.axis('off')
+            state_plot.pyplot(fig_state)
+            plt.close(fig_state)
             
-            # 1. 砂山の状態
-            ax1.imshow(model.grid, cmap='magma', vmin=0, vmax=3)
-            ax1.set_title(f"Sandpile State (Step: {step})")
+            # 2. 時系列グラフ (Streamlitネイティブチャートで高速化)
+            # 直近1000件を表示
+            ts_plot.line_chart(avalanche_sizes[-1000:], height=200)
             
-            # 2. 時系列グラフ (ステップ数 vs 雪崩規模)
-            ax2.plot(avalanche_sizes, color='red', lw=0.5)
-            ax2.set_yscale('log')
-            ax2.set_title("Avalanche Size (Time Series)")
-            ax2.set_xlabel("Steps")
-            ax2.set_ylabel("Size")
-            
-            # 3. べき乗則の分布 (Log-Log)
+            # 3. べき乗則分布 (Log-Log)
             valid_sizes = [s for s in avalanche_sizes if s >= 1]
             if valid_sizes:
                 counts = Counter(valid_sizes)
                 sizes = sorted(counts.keys())
                 probs = [counts[s] / len(valid_sizes) for s in sizes]
-                ax3.scatter(sizes, probs, alpha=0.5, s=10)
-                ax3.set_xscale('log')
-                ax3.set_yscale('log')
-                ax3.set_title("Size Distribution (Log-Log)")
-                ax3.set_xlabel("Size (s)")
-                ax3.set_ylabel("P(s)")
+                
+                fig_dist, ax_dist = plt.subplots(figsize=(6, 4))
+                ax_dist.scatter(sizes, probs, alpha=0.5, s=15, c='blue')
+                ax_dist.set_xscale('log')
+                ax_dist.set_yscale('log')
+                ax_dist.set_xlabel("Size (s)")
+                ax_dist.set_ylabel("P(s)")
+                ax_dist.grid(True, which="both", ls="-", alpha=0.2)
+                dist_plot.pyplot(fig_dist)
+                plt.close(fig_dist)
 
-            plt.tight_layout()
-            plot_spot.pyplot(fig)
-            plt.close(fig)
-
-    st.success("Simulation Complete!")
+    st.success(f"Completed {steps} steps!")
